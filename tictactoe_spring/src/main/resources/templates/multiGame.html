@@ -1,0 +1,294 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Tic-Tac-Toe</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.2/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+
+        .title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            text-align: center;
+            flex-grow: 1;
+        }
+
+        .user-info {
+            margin-bottom: 15px;
+            font-size: 16px;
+            color: #333;
+        }
+
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Subtle shadow */
+        }
+
+        td {
+            width: 70px; /* Increased cell size */
+            height: 70px; /* Increased cell size */
+            text-align: center;
+            vertical-align: middle;
+            font-size: 30px; /* Increased font size */
+            border: 1px solid #ddd;
+            cursor: pointer;
+            transition: background-color 0.3s ease; /* Smooth hover effect */
+            position: relative; /* Required for absolute positioning of the button */
+        }
+
+        td:hover {
+            background-color: #e0e0e0;
+        }
+
+        .x {
+            color: blue;
+        }
+
+        .o {
+            color: red;
+        }
+
+        .game-info {
+            margin-bottom: 15px;
+        }
+
+        .error {
+            color: red;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        a {
+            margin-top: 20px;
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        a:hover {
+            background-color: #367c39;
+        }
+
+        .gameOver{
+            font-size: 2em;
+            color: green;
+            text-align: center;
+        }
+
+        .winner {
+            font-size: 3em;
+            color: green;
+            text-align: center;
+        }
+
+        button {
+            position: absolute;  /* Position the button absolutely */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent; /* Make the button background transparent */
+            border: none;
+            cursor: pointer;
+            z-index: 1; /* Ensure the button is on top of any content */
+        }
+    </style>
+
+</head>
+<body>
+
+<h1>Tic-Tac-Toe Game</h1>
+<div class="user-info" th:if="${login}" th:text="${login}"></div>
+
+<div th:if="${gameOver}" class="gameOver">Game Over!
+
+</div>
+
+<div th:if="${error}" class="error" th:text="${error}">
+</div>
+
+<br>
+<div class="game-info" th:text="'Game ID: ' + ${gameId}">
+</div>
+
+<br>
+
+<table>
+    <tr th:each="row, rowStat : ${board}">
+        <td th:each="cell, cellStat : ${row}">
+            <span th:if="${winner != null and winner != ''}">
+                <span th:if="${cell == 1}" class="x">X</span>
+                <span th:if="${cell == 2}" class="o">O</span>
+                <span th:if="${cell == 0}"></span>
+            </span>
+            <span th:unless="${winner != null and winner != ''}">
+                <span th:if="${cell == 1}" class="x">X</span>
+                <span th:if="${cell == 2}" class="o">O</span>
+                <span th:if="${cell == 0}">
+                    <form th:action="@{/game/multi/{gameId}(gameId=${gameId})}" method="post">
+                        <input type="hidden" name="row" th:value="${rowStat.index}"/>
+                        <input type="hidden" name="col" th:value="${cellStat.index}"/>
+                        <button type="submit"></button>
+                    </form>
+                </span>
+            </span>
+        </td>
+    </tr>
+</table>
+
+<br>
+<br>
+<div class="status_info" th:text="'Game Status: ' + ${status}">
+</div>
+
+<br>
+<br>
+<div th:if="${winner != ''}" class="winner" th:text="${winner}"></div>
+
+<br>
+<br>
+<a href="/newMultiGame">New online Game</a>
+
+<br>
+
+<a href="/gameMenu">gameMenu</a>
+
+
+<script th:inline="javascript">
+    var stompClient = null;
+    var gameId = /*[[${gameId}]]*/ null;
+    var gameOver = /*[[${gameOver}]]*/ false;
+
+    function connect() {
+        var socket = new SockJS('/websocket');
+        stompClient = Stomp.over(socket);
+        stompClient.connect({}, onConnected, onError);
+    }
+
+    function onConnected() {
+        console.log("Connected to WebSocket");
+        stompClient.subscribe('/topic/game/' + gameId, onGameUpdate);
+
+        // If game is over on load, update the board to disable clicks
+        if (gameOver) {
+            var initialGameState = {
+                board: {board: /*[[${board}]]*/ null},
+                state: /*[[${status}]]*/ null,
+                gameOver: gameOver,
+                winner: /*[[${winner}]]*/ null
+            };
+            updateGame(initialGameState);
+        }
+    }
+
+    function onError(error) {
+        console.log("Error connecting to WebSocket: " + error);
+    }
+
+    function onGameUpdate(payload) {
+        var game = JSON.parse(payload.body);
+        console.log("Received game update:", game);
+
+        updateGame(game);
+    }
+
+    function updateGame(game) {
+        var board = game.board.board;
+        var table = document.querySelector('table');
+        table.innerHTML = '';
+
+        for (var i = 0; i < board.length; i++) {
+            var row = table.insertRow(i);
+            for (var j = 0; j < board[i].length; j++) {
+                var cell = row.insertCell(j);
+                var value = board[i][j];
+
+                if (value === 1) {
+                    cell.innerHTML = '<span class="x">X</span>';
+                } else if (value === 2) {
+                    cell.innerHTML = '<span class="o">O</span>';
+                } else {
+                    var form = document.createElement('form');
+                    form.setAttribute('method', 'post');
+                    form.setAttribute('action', /*[[@{/game/multi/{gameId}(gameId=${gameId})}]]*/ '/game/multi/' + gameId);
+
+                    var rowInput = document.createElement('input');
+                    rowInput.setAttribute('type', 'hidden');
+                    rowInput.setAttribute('name', 'row');
+                    rowInput.setAttribute('value', i);
+
+                    var colInput = document.createElement('input');
+                    colInput.setAttribute('type', 'hidden');
+                    colInput.setAttribute('name', 'col');
+                    colInput.setAttribute('value', j);
+
+                    var button = document.createElement('button');
+                    button.setAttribute('type', 'submit');
+
+                    form.appendChild(rowInput);
+                    form.appendChild(colInput);
+                    form.appendChild(button);
+
+                    cell.appendChild(form);
+
+                    if (game.gameOver) {
+                        // Remove the form if the game is over
+                        cell.innerHTML = cell.innerHTML || ''; // Clear cell content before adding span
+                        if (value === 1) {
+                            cell.innerHTML = '<span class="x">X</span>';
+                        } else if (value === 2) {
+                            cell.innerHTML = '<span class="o">O</span>';
+                        }
+                        cell.removeAttribute('onclick'); // Disable onclick attribute, if set
+                    }
+                }
+            }
+        }
+
+        document.querySelector('.status_info').textContent = 'Game Status: ' + game.state;
+
+        var gameOverDiv = document.querySelector('.winner');
+        if (game.gameOver) {
+            gameOverDiv.style.display = 'block';
+            gameOverDiv.textContent = game.winner;
+        } else {
+            gameOverDiv.style.display = 'none';
+        }
+
+        var errorDiv = document.querySelector('.error');
+        if (game.error) {
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = game.error;
+        } else {
+            errorDiv.style.display = 'none';
+        }
+    }
+
+
+    window.onload = connect;
+</script>
+
+</body>
+</html>

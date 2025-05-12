@@ -1,0 +1,28 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:latest
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tictactoe_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  app:
+    build: . # Укажите путь к вашему Dockerfile
+    restart: always
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+    environment:
+      SPRING_DATASOURCE_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/tictactoe_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+
+volumes:
+  db_data:
